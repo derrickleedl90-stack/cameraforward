@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Camera Forward — OBS Receiver</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body class="receiver-page">
+    <video id="remoteVideo" autoplay muted playsinline></video>
+    <div id="receiverStatus" class="receiver-status">Connecting…</div>
+    <script type="module" src="/src/receiver.ts"></script>
+  </body>
+</html>

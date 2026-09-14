@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Camera Forward — Sender</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body class="sender-page">
+    <main class="app-shell">
+      <header>
+        <p class="eyebrow">DEVICE A · SENDER</p>
+        <h1>Camera Forward</h1>
+        <p class="lede">Send this camera securely to the OBS virtual camera on device B.</p>
+      </header>
+
+      <section class="video-card">
+        <video id="preview" autoplay muted playsinline></video>
+        <div id="previewPlaceholder" class="video-placeholder">Camera is off</div>
+        <span id="liveBadge" class="live-badge" hidden>LIVE</span>
+      </section>
+
+      <section class="controls panel">
+        <label>
+          Camera
+          <select id="cameraSelect" disabled><option>Default camera</option></select>
+        </label>
+        <label>
+          Quality
+          <select id="qualitySelect">
+            <option value="1080p30" selected>1080p · 30 FPS · up to 12 Mbps</option>
+            <option value="720p30">720p · 30 FPS · up to 6 Mbps</option>
+          </select>
+        </label>
+        <div class="button-row">
+          <button id="startButton" class="primary">Start camera session</button>
+          <button id="stopButton" class="danger" disabled>Stop sharing</button>
+        </div>
+      </section>
+
+      <section id="sharePanel" class="panel" hidden>
+        <p class="label">OBS Browser Source URL</p>
+        <div class="copy-row">
+          <input id="viewerUrl" readonly aria-label="Viewer URL" />
+          <button id="copyButton">Copy</button>
+        </div>
+        <p class="hint">Add this URL as a Browser Source in OBS on B. Treat it like a password.</p>
+      </section>
+
+      <section class="status-grid panel" aria-live="polite">
+        <div><span>Status</span><strong id="status">Ready</strong></div>
+        <div><span>Viewer</span><strong id="viewerStatus">Not connected</strong></div>
+        <div><span>Outgoing</span><strong id="bitrate">—</strong></div>
+        <div><span>Connection</span><strong id="route">—</strong></div>
+      </section>
+    </main>
+    <script type="module" src="/src/sender.ts"></script>
+  </body>
+</html>

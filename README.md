@@ -1,6 +1,87 @@
 # Camera Forward
 
-Forward a live camera stream from device **A** to device **B**, even when the devices are on different local networks.
+Forward a live camera stream from personal device **A** to an OBS Virtual Camera on company device **B**, even when the devices are on different local networks. The virtual camera can then be selected in a meeting application on B.
+
+## Current status
+
+The first working MVP is implemented:
+
+- Browser camera sender for A
+- OBS-friendly, full-canvas WebRTC receiver for B
+- Node.js WebSocket signaling server
+- Expiring, role-specific sender and viewer tokens
+- Configurable STUN and TURN servers
+- 1080p30 and 720p30 quality profiles
+- H.264 preference, resolution-preserving adaptation, and sender statistics
+- Automated session tests and an HTTP/WebSocket smoke test
+
+## Quick start on one computer
+
+Requirements: Node.js 22 or newer.
+
+```bash
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`, select a quality profile, and click **Start camera session**. The displayed receiver URL can be opened in another browser tab for local testing.
+
+The development commands run:
+
+- Web UI: `http://localhost:5173`
+- Signaling server: `http://localhost:3000`
+
+Camera access works on `localhost` without HTTPS. Accessing the development server through a LAN IP is not a supported cross-device setup because browsers normally require HTTPS for camera access.
+
+## Use with OBS on B
+
+1. Install OBS Studio and confirm that company policy allows its Virtual Camera component.
+2. On A, open the deployed Camera Forward sender and click **Start camera session**.
+3. Copy the generated **OBS Browser Source URL** to B. Treat the URL like a password.
+4. In OBS on B, create a scene and add a **Browser** source.
+5. Paste the receiver URL and set its width to `1920` and height to `1080`.
+6. Set OBS Base (Canvas) and Output (Scaled) Resolution to `1920×1080`.
+7. Set OBS Common FPS Value to `30` and avoid adding scaling or video filters.
+8. Click **Start Virtual Camera** in OBS.
+9. Open the meeting application on B and select **OBS Virtual Camera** as the camera.
+
+The receiver status message disappears as soon as video is playing. OBS recording and streaming are not needed and should remain off.
+
+## Production build
+
+```bash
+npm run build
+npm start
+```
+
+The production server serves both the compiled web UI and WebSocket signaling on port `3000` by default. Put it behind an HTTPS reverse proxy on a public domain. The proxy must support WebSocket upgrades on `/ws`.
+
+Copy `.env.example` to `.env` and configure infrastructure you control:
+
+```dotenv
+PORT=3000
+SESSION_TTL_MINUTES=120
+STUN_URLS=stun:stun.example.com:3478
+TURN_URLS=turn:turn.example.com:3478?transport=udp,turns:turn.example.com:5349?transport=tcp
+TURN_USERNAME=temporary-username
+TURN_CREDENTIAL=temporary-password
+```
+
+For local testing, ICE servers may be omitted. For A and B on separate networks, deploy with both STUN and TURN. Production TURN credentials should be generated with short lifetimes rather than stored permanently in the frontend or repository.
+
+## Verification commands
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+With a built server running, its complete HTTP/WebSocket path can be checked using:
+
+```bash
+SMOKE_BASE_URL=http://localhost:3000 npm run smoke
+```
 
 ## Goal
 
@@ -179,19 +260,16 @@ For the lowest and most consistent latency, native sender software may ultimatel
 - Add monitoring for signaling and TURN availability without recording media.
 - Add end-to-end tests across representative network types.
 
-## Proposed repository layout
+## Repository layout
 
 ```text
 cameraforward/
-├── apps/
-│   ├── web/                 # Sender and viewer UI
-│   └── signaling-server/    # Session and WebSocket signaling
-├── packages/
-│   └── protocol/            # Shared signaling message types
-├── deploy/
-│   ├── turn/                # coturn configuration examples
-│   └── containers/          # Deployment configuration
-├── tests/
+├── src/                     # Node.js signaling and session server
+├── web/                     # Sender and OBS receiver pages
+├── test/                    # Session manager tests
+├── scripts/                 # Runtime smoke test
+├── .env.example             # STUN/TURN configuration template
+├── package.json
 └── README.md
 ```
 
@@ -251,4 +329,4 @@ The MVP is complete when:
 
 ## Next step
 
-Start with milestone 1 and scaffold the web client plus signaling server. Keep the protocol small, validate each signaling message, and add TURN before considering the cross-network MVP complete.
+Run the local sender-to-receiver test, then deploy the service behind HTTPS and configure a geographically nearby TURN server. Cross-network testing with A on personal internet and B on the company network is the next milestone; the MVP is not production-ready until TURN fallback is verified through the company's firewall.
