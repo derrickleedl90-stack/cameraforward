@@ -38,9 +38,22 @@ const setStatus = (message: string): void => {
 };
 
 const enumerateCameras = async (): Promise<void> => {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    cameraSelect.replaceChildren(new Option("Camera access is unavailable", ""));
+    cameraSelect.disabled = true;
+    return;
+  }
+
   const devices = await navigator.mediaDevices.enumerateDevices();
   const cameras = devices.filter(({ kind }) => kind === "videoinput");
   const selected = stream?.getVideoTracks()[0]?.getSettings().deviceId;
+
+  if (!cameras.length) {
+    cameraSelect.replaceChildren(new Option("No cameras found", ""));
+    cameraSelect.disabled = true;
+    return;
+  }
+
   cameraSelect.replaceChildren(...cameras.map((camera, index) => {
     const option = document.createElement("option");
     option.value = camera.deviceId;
@@ -49,6 +62,50 @@ const enumerateCameras = async (): Promise<void> => {
     return option;
   }));
   cameraSelect.disabled = cameras.length < 2;
+};
+
+const cameraErrorMessage = (error: unknown): string => {
+  if (!(error instanceof DOMException)) return error instanceof Error ? error.message : "Could not start camera";
+  if (error.name === "NotAllowedError" || error.name === "SecurityError") {
+    return "Camera permission was denied. Allow camera access in your browser settings and try again.";
+  }
+  if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
+    return "No camera was found. Connect or enable a camera, then try again.";
+  }
+  if (error.name === "NotReadableError" || error.name === "TrackStartError") {
+    return "The camera is busy or unavailable. Close other apps using it and try again.";
+  }
+  if (error.name === "OverconstrainedError" || error.name === "ConstraintNotSatisfiedError") {
+    return "The selected camera does not support the requested settings.";
+  }
+  return error.message || "Could not start camera";
+};
+
+const captureCamera = async (): Promise<MediaStream> => {
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Camera access requires HTTPS or http://localhost.");
+  }
+
+  const selectedQuality = quality();
+  const selectedDeviceId = cameraSelect.value;
+  const video: MediaTrackConstraints = {
+    width: { ideal: selectedQuality.width },
+    height: { ideal: selectedQuality.height },
+    frameRate: { ideal: selectedQuality.frameRate, max: selectedQuality.frameRate }
+  };
+  if (selectedDeviceId) video.deviceId = { exact: selectedDeviceId };
+
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: false, video });
+  } catch (error) {
+    // A camera can disappear between enumeration and capture. Retry with the
+    // browser's default device instead of leaving the Start button inert.
+    if (selectedDeviceId && error instanceof DOMException && ["NotFoundError", "OverconstrainedError"].includes(error.name)) {
+      delete video.deviceId;
+      return navigator.mediaDevices.getUserMedia({ audio: false, video });
+    }
+    throw error;
+  }
 };
 
 const createPeerConnection = async (): Promise<RTCPeerConnection> => {
@@ -167,7 +224,6 @@ const stop = (): void => {
   startButton.disabled = false;
   stopButton.disabled = true;
   qualitySelect.disabled = false;
-  cameraSelect.disabled = true;
   viewerStatus.textContent = "Not connected";
   bitrate.textContent = "—";
   route.textContent = "—";
@@ -181,16 +237,7 @@ const start = async (): Promise<void> => {
   startButton.disabled = true;
   setStatus("Requesting camera…");
   try {
-    const selectedQuality = quality();
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        deviceId: cameraSelect.value ? { exact: cameraSelect.value } : undefined,
-        width: { ideal: selectedQuality.width },
-        height: { ideal: selectedQuality.height },
-        frameRate: { ideal: selectedQuality.frameRate, max: selectedQuality.frameRate }
-      }
-    });
+    stream = await captureCamera();
     preview.srcObject = stream;
     previewPlaceholder.hidden = true;
     liveBadge.hidden = false;
@@ -215,7 +262,7 @@ const start = async (): Promise<void> => {
     statsTimer = window.setInterval(() => void updateStats(), 1_000);
   } catch (error) {
     stop();
-    setStatus(error instanceof Error ? error.message : "Could not start camera");
+    setStatus(cameraErrorMessage(error));
   }
 };
 
@@ -233,3 +280,16 @@ cameraSelect.addEventListener("change", () => {
   }
 });
 window.addEventListener("beforeunload", stop);
+
+if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+  startButton.disabled = true;
+  cameraSelect.replaceChildren(new Option("Camera access is unavailable", ""));
+  setStatus("Camera access requires HTTPS or http://localhost.");
+} else {
+  const refreshCameraList = (): void => void enumerateCameras().catch(() => {
+    cameraSelect.replaceChildren(new Option("Default camera", ""));
+    cameraSelect.disabled = true;
+  });
+  refreshCameraList();
+  navigator.mediaDevices.addEventListener("devicechange", refreshCameraList);
+}
