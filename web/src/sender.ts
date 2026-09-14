@@ -208,41 +208,58 @@ const updateStats = async (): Promise<void> => {
   }
 };
 
-const stop = (): void => {
+const resetSession = (): void => {
   if (statsTimer) window.clearInterval(statsTimer);
   send({ type: "hangup" });
   socket?.close(1000, "Sender stopped");
   connection?.close();
-  stream?.getTracks().forEach((track) => track.stop());
-  stream = undefined;
   connection = undefined;
   socket = undefined;
-  preview.srcObject = null;
-  previewPlaceholder.hidden = false;
-  liveBadge.hidden = true;
+  statsTimer = undefined;
   sharePanel.hidden = true;
-  startButton.disabled = false;
-  stopButton.disabled = true;
-  qualitySelect.disabled = false;
   viewerStatus.textContent = "Not connected";
   bitrate.textContent = "—";
   route.textContent = "—";
   lastBytes = 0;
   lastStatsTime = 0;
   signalQueue = Promise.resolve();
+};
+
+const stop = (): void => {
+  resetSession();
+  stream?.getTracks().forEach((track) => track.stop());
+  stream = undefined;
+  preview.srcObject = null;
+  previewPlaceholder.hidden = false;
+  liveBadge.hidden = true;
+  startButton.disabled = false;
+  stopButton.disabled = true;
+  qualitySelect.disabled = false;
   setStatus("Stopped");
 };
 
 const start = async (): Promise<void> => {
   startButton.disabled = true;
-  setStatus("Requesting camera…");
-  try {
-    stream = await captureCamera();
+  if (!stream) {
+    setStatus("Requesting camera…");
+    try {
+      stream = await captureCamera();
+    } catch (error) {
+      stop();
+      setStatus(cameraErrorMessage(error));
+      return;
+    }
+
     preview.srcObject = stream;
     previewPlaceholder.hidden = true;
     liveBadge.hidden = false;
-    await enumerateCameras();
+    stopButton.disabled = false;
+    qualitySelect.disabled = true;
+    await enumerateCameras().catch(() => undefined);
+  }
 
+  setStatus("Creating camera session…");
+  try {
     const response = await fetch("/api/sessions", { method: "POST" });
     if (!response.ok) throw new Error("Could not create a session");
     const session = await response.json() as {
@@ -254,15 +271,14 @@ const start = async (): Promise<void> => {
     senderToken = session.senderToken;
     viewerUrl.value = new URL(session.viewerFragment, location.origin).href;
     sharePanel.hidden = false;
-    stopButton.disabled = false;
-    qualitySelect.disabled = true;
 
     connection = await createPeerConnection();
     await connectSignaling();
     statsTimer = window.setInterval(() => void updateStats(), 1_000);
   } catch (error) {
-    stop();
-    setStatus(cameraErrorMessage(error));
+    resetSession();
+    startButton.disabled = false;
+    setStatus(`${error instanceof Error ? error.message : "Could not create a session"}. Camera preview is still on; try again.`);
   }
 };
 

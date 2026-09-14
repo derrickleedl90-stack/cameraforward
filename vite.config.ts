@@ -16,9 +16,11 @@ export default defineConfig({
   server: {
     host: true,
     proxy: {
-      "/api": "http://localhost:3000",
+      // Use an explicit IPv4 loopback address and a dedicated development
+      // port so localhost's IPv4/IPv6 listeners cannot reach different apps.
+      "/api": "http://127.0.0.1:3100",
       "/ws": {
-        target: "ws://localhost:3000",
+        target: "ws://127.0.0.1:3100",
         ws: true
       }
     }

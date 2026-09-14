@@ -12,7 +12,8 @@ try {
   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 }
 
-const port = Number.parseInt(process.env.PORT ?? "3000", 10);
+const port = Number.parseInt(process.env.DEV_SERVER_PORT ?? process.env.PORT ?? "3000", 10);
+const host = process.env.HOST ?? "0.0.0.0";
 const ttlMinutes = Number.parseInt(process.env.SESSION_TTL_MINUTES ?? "120", 10);
 const sessions = new SessionManager(ttlMinutes * 60_000);
 const webRoot = fileURLToPath(new URL("../web", import.meta.url));
@@ -200,6 +201,6 @@ wss.on("connection", (ws) => {
 
 setInterval(() => sessions.removeExpired(), 60_000).unref();
 
-server.listen(port, () => {
+server.listen(port, host, () => {
   console.log(`Camera Forward listening on http://localhost:${port}`);
 });

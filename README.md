@@ -29,7 +29,7 @@ Open `http://localhost:5173`, select a quality profile, and click **Start camera
 The development commands run:
 
 - Web UI: `http://localhost:5173`
-- Signaling server: `http://localhost:3000`
+- Signaling server: `http://localhost:3100`
 
 Camera access works on `localhost` without HTTPS. Accessing the development server through a LAN IP is not a supported cross-device setup because browsers normally require HTTPS for camera access.
 
