@@ -24,12 +24,13 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`, select a quality profile, and click **Start camera session**. The displayed receiver URL can be opened in another browser tab for local testing.
+Open `http://localhost:3100`, select a quality profile, and click **Start camera session**. The displayed receiver URL can be opened in another browser tab for local testing.
 
-The development commands run:
+The development command builds and starts the web UI and signaling API together:
 
-- Web UI: `http://localhost:5173`
-- Signaling server: `http://localhost:3100`
+- Web UI and signaling server: `http://localhost:3100`
+
+This single-origin setup is the most reliable option across Windows, macOS, and Linux. Contributors who need Vite hot reload can use `npm run dev:hot` instead.
 
 Camera access works on `localhost` without HTTPS. Accessing the development server through a LAN IP is not a supported cross-device setup because browsers normally require HTTPS for camera access.
 
