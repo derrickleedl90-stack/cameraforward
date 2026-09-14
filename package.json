@@ -8,7 +8,7 @@
     "build:web": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "dev": "concurrently -k -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
-    "dev:server": "DEV_SERVER_PORT=3100 tsx watch src/server.ts",
+    "dev:server": "tsx watch src/server.ts --dev-port=3100",
     "dev:web": "vite",
     "start": "node dist/server/server.js",
     "smoke": "node --import tsx scripts/smoke-test.ts",

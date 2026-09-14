@@ -12,7 +12,8 @@ try {
   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 }
 
-const port = Number.parseInt(process.env.DEV_SERVER_PORT ?? process.env.PORT ?? "3000", 10);
+const devPort = process.argv.find((argument) => argument.startsWith("--dev-port="))?.split("=", 2)[1];
+const port = Number.parseInt(devPort ?? process.env.PORT ?? "3000", 10);
 const host = process.env.HOST ?? "0.0.0.0";
 const ttlMinutes = Number.parseInt(process.env.SESSION_TTL_MINUTES ?? "120", 10);
 const sessions = new SessionManager(ttlMinutes * 60_000);
