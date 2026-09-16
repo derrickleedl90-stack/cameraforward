@@ -61,11 +61,11 @@ namespace ScreenZoom
             Keys[] keys = { Keys.Z, Keys.Q, Keys.Up, Keys.Down };
             for (int index = 0; index < keys.Length; index++)
             {
-                if (!Native.RegisterHotKey(Handle, index + 1, 0x4003, (uint)keys[index]))
+                if (!Native.RegisterHotKey(Handle, index + 1, 0x4006, (uint)keys[index]))
                 {
                     for (int id = 1; id <= registeredHotkeys; id++) Native.UnregisterHotKey(Handle, id);
                     registeredHotkeys = 0;
-                    throw new InvalidOperationException("Ctrl + Alt + " + keys[index] + " is already in use. Screen Zoom could not start.");
+                    throw new InvalidOperationException("Ctrl + Shift + " + keys[index] + " is already in use. Screen Zoom could not start.");
                 }
                 registeredHotkeys++;
             }
@@ -266,15 +266,15 @@ namespace ScreenZoom
             // reflected in Windows asynchronous key state. Capture begins with
             // all keys released, so this set starts in a known state.
             bool control = pressedKeys.Contains((int)Keys.LControlKey) || pressedKeys.Contains((int)Keys.RControlKey) || pressedKeys.Contains((int)Keys.ControlKey);
-            bool alt = pressedKeys.Contains((int)Keys.LMenu) || pressedKeys.Contains((int)Keys.RMenu) || pressedKeys.Contains((int)Keys.Menu);
+            bool shift = pressedKeys.Contains((int)Keys.LShiftKey) || pressedKeys.Contains((int)Keys.RShiftKey) || pressedKeys.Contains((int)Keys.ShiftKey);
             // Queue work and return immediately: a slow low-level hook can be
             // silently removed by Windows. Never paint or capture in this hook.
             if (keyDown)
             {
                 if (key == (int)Keys.Escape) BeginInvoke((Action)Unlock);
-                else if (control && alt && key == (int)Keys.Up)
+                else if (control && shift && key == (int)Keys.Up)
                     BeginInvoke((Action)delegate { Zoom(1); });
-                else if (control && alt && key == (int)Keys.Down)
+                else if (control && shift && key == (int)Keys.Down)
                     BeginInvoke((Action)delegate { Zoom(-1); });
                 else if (key == (int)Keys.Oemplus || key == (int)Keys.Add)
                     BeginInvoke((Action)delegate { Zoom(1); });

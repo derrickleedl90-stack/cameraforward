@@ -6,9 +6,9 @@ A small native Windows desktop app that continuously refreshes the desktop, zoom
 
 1. Copy or extract this entire folder onto a Windows 11 PC (x64; this build targets native x64 Windows).
 2. Double-click **Run Screen Zoom.vbs**. It compiles `bin\ScreenZoom.exe` using the .NET Framework compiler on your PC and opens it. No administrator rights, Python, Node.js, or Visual Studio are needed.
-3. Startup is invisible: no window, status bar, tray icon, or console. Put your pointer over the detail you want to enlarge, press **Ctrl + Alt + Z**, release the keys, and wait one second.
+3. Startup is invisible: no window, status bar, tray icon, or console. Put your pointer over the detail you want to enlarge, press **Ctrl + Shift + Z**, release the keys, and wait one second.
 4. The live desktop view starts at 100% with no text or status overlay. Use the wheel or the plus/minus keys to change zoom.
-5. Press **Esc** to unlock. The app stays silently available for another session. Press **Ctrl + Alt + Q** after unlocking to exit completely.
+5. Press **Esc** to unlock. The app stays silently available for another session. Press **Ctrl + Shift + Q** after unlocking to exit completely.
 
 The `.vbs` launcher hides the build console; the `.cmd` launcher is available for troubleshooting if Windows Script Host is disabled. Only errors display a dialog. Exit the previous version before rebuilding.
 
@@ -18,13 +18,13 @@ After the first build, you can launch `bin\ScreenZoom.exe` directly. If the comp
 
 | Control | Action |
 | --- | --- |
-| Ctrl + Alt + Z | Start capture from another app |
-| Ctrl + Alt + Up | Zoom in 3%; activates at 103% if unlocked (release keys and wait one second) |
-| Ctrl + Alt + Down | Zoom out 3% while locked; no effect while unlocked |
+| Ctrl + Shift + Z | Start capture from another app |
+| Ctrl + Shift + Up | Zoom in 3%; activates at 103% if unlocked (release keys and wait one second) |
+| Ctrl + Shift + Down | Zoom out 3% while locked; no effect while unlocked |
 | Wheel up / down | Zoom in / out |
 | + / - (including numeric keypad) | Zoom in / out |
 | Esc | Unlock immediately |
-| Ctrl + Alt + Q | Exit the app while unlocked |
+| Ctrl + Shift + Q | Exit the app while unlocked |
 
 Zoom ranges from 100% to 800% in 3 percentage-point increments: 100%, 103%, 106%, 109%, etc. The upper limit is clamped to 800%. Returning to 100% keeps the view locked; use Esc to unlock. Moving the pointer does not move the magnified image. To choose a new focus point, unlock and start again. The app waits for all keys and mouse buttons to be released before locking.
 
@@ -45,14 +45,14 @@ Run `build.cmd` on Windows to compile. The source uses C# 5 and Windows Forms fr
 
 The source and zoom geometry were checked on macOS. **The executable has not been compiled or run on Windows in this environment.** Complete these checks on Windows before relying on it:
 
-1. Build and launch; verify no window or console appears. Activate with Ctrl + Alt + Z over Notepad and verify there is no status overlay.
-2. Test Ctrl + Alt + Up from another app: release keys and verify activation at 103%. While locked, test both Ctrl + Alt + Up/Down (including right-side modifiers); each press should change zoom once by 3%. Release modifiers and verify plain arrows do not zoom. Zoom through 100%–800%, test wheel and both sets of plus/minus keys, and confirm movement never pans the image.
+1. Build and launch; verify no window or console appears. Activate with Ctrl + Shift + Z over Notepad and verify there is no status overlay.
+2. Test Ctrl + Shift + Up from another app: release keys and verify activation at 103%. While locked, test both Ctrl + Shift + Up/Down (including right-side modifiers); each press should change zoom once by 3%. Release modifiers and verify plain arrows do not zoom. Zoom through 100%–800%, test wheel and both sets of plus/minus keys, and confirm movement never pans the image.
 3. While locked, type letters, click, right-click, press Tab, Alt + Tab, and Windows. Confirm ordinary input does not affect Notepad. Esc must restore control.
 4. Confirm 100% stays locked and repeated unlock/restart cycles work.
 5. Test two monitors, including one left of the primary, and Windows scaling at 100%, 150%, and 200%.
 6. Disconnect a monitor and switch to the Windows security screen during zoom; verify the app releases the lock safely.
 7. Play a video or a meeting with visible movement for at least a minute while zoomed. Confirm continuous updates, no black image or recursive zoom, responsive Esc, and acceptable CPU usage. Test screen sharing separately to confirm what participants see.
-8. Unlock and exit using Ctrl + Alt + Q, or end the process, and confirm normal keyboard/mouse input is restored.
+8. Unlock and exit using Ctrl + Shift + Q, or end the process, and confirm normal keyboard/mouse input is restored.
 
 Implementation references: [Microsoft keyboard hook documentation](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc) and [DPI awareness contexts](https://learn.microsoft.com/en-us/windows/win32/hidpi/dpi-awareness-context).
 
@@ -60,9 +60,9 @@ Implementation references: [Microsoft keyboard hook documentation](https://learn
 
 The previous live-refresh version marked the zoom window as excluded from screen capture. This can explain why zoom was visible on the physical PC but absent through remote-desktop capture. This version instead hosts the Windows native magnifier control and uses its own source filter; it does not hide the resulting window from general screen capture.
 
-1. On the Windows PC, press Esc, then Ctrl + Alt + Q to stop the old version.
+1. On the Windows PC, press Esc, then Ctrl + Alt + Q to stop the previous Alt-shortcut version. Once updated, use Ctrl + Shift + Q to quit.
 2. Extract the updated package into a new folder and run **Run Screen Zoom.vbs**.
-3. From Jump Desktop, send Ctrl + Alt + Up, release the keys, and wait one second. Press it several more times to make the change obvious.
+3. From Jump Desktop, send Ctrl + Shift + Up, release the keys, and wait one second. Press it several more times to make the change obvious.
 4. Confirm the physical display and remote display both zoom, while a video keeps moving. Test the wheel, + / -, and Esc too. If Jump Desktop intercepts a shortcut locally, use its keyboard forwarding facilities to send the chord to Windows.
 5. Verify no input reaches the meeting app while locked, and that Esc restores normal control.
 
