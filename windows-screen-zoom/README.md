@@ -1,13 +1,13 @@
 # Screen Zoom for Windows 11
 
-A small native Windows desktop app that freezes the entire desktop, zooms around a fixed point, and prevents ordinary keyboard input and mouse clicks from reaching the applications underneath while active.
+A small native Windows desktop app that continuously refreshes the desktop, zooms around a fixed point, and prevents ordinary keyboard input and mouse clicks from reaching the applications underneath while active.
 
 ## Run
 
 1. Copy or extract this entire folder onto a Windows 11 PC (x64, or ARM64 with x64 emulation).
 2. Double-click **Run Screen Zoom.vbs**. It compiles `bin\ScreenZoom.exe` using the .NET Framework compiler on your PC and opens it. No administrator rights, Python, Node.js, or Visual Studio are needed.
 3. Startup is invisible: no window, status bar, tray icon, or console. Put your pointer over the detail you want to enlarge, press **Ctrl + Alt + Z**, release the keys, and wait one second.
-4. The desktop freezes and starts at 100% with no text or status overlay. Use the wheel or the plus/minus keys to change zoom.
+4. The live desktop view starts at 100% with no text or status overlay. Use the wheel or the plus/minus keys to change zoom.
 5. Press **Esc** to unlock. The app stays silently available for another session. Press **Ctrl + Alt + Q** after unlocking to exit completely.
 
 The `.vbs` launcher hides the build console; the `.cmd` launcher is available for troubleshooting if Windows Script Host is disabled. Only errors display a dialog. Exit the previous version before rebuilding.
@@ -28,8 +28,9 @@ Zoom ranges from 100% to 800% in 3 percentage-point increments: 100%, 103%, 106%
 
 ## Behavior and limits
 
-- **This version freezes a screenshot.** Videos, clocks, and animations in the displayed image stop updating. The underlying programs continue running. This is a viewing/input lock, not a Windows session lock.
-- The screenshot stays in memory and is discarded on unlock. Nothing is saved or sent over the network.
+- **Live view:** desktop capture refreshes on a 33 ms timer (approximately 30 fps target; actual performance depends on resolution and hardware). Videos and meeting content can update while the focus point stays fixed. This is an input lock, not a Windows session lock.
+- The reusable frame buffer stays in memory and is discarded on unlock. Nothing is saved or sent over the network.
+- The zoom window is excluded from capture to prevent recursive zoom. Meeting screen sharing may therefore show the original unzoomed desktop rather than your local zoomed view, depending on the meeting capture method. Verify this with your meeting app.
 - All monitors are captured as one desktop and magnified around the initial pointer location. Mixed-DPI displays and negative monitor coordinates are accounted for, but need real-device verification.
 - An opaque full-desktop window intercepts clicks. A temporary keyboard hook consumes ordinary keys while locked, allowing only zoom controls and Esc to affect this app.
 - Windows secure screens and protected video are outside this app's control. Protected content may appear black. **Ctrl + Alt + Delete remains a Windows escape route.** This is not kiosk or security software; other topmost/elevated windows and system gestures may interrupt it.
@@ -48,6 +49,9 @@ The source and zoom geometry were checked on macOS. **The executable has not bee
 4. Confirm 100% stays locked and repeated unlock/restart cycles work.
 5. Test two monitors, including one left of the primary, and Windows scaling at 100%, 150%, and 200%.
 6. Disconnect a monitor and switch to the Windows security screen during zoom; verify the app releases the lock safely.
-7. Unlock and exit using Ctrl + Alt + Q, or end the process, and confirm normal keyboard/mouse input is restored.
+7. Play a video or a meeting with visible movement for at least a minute while zoomed. Confirm continuous updates, no black image or recursive zoom, responsive Esc, and acceptable CPU usage. Test screen sharing separately to confirm what participants see.
+8. Unlock and exit using Ctrl + Alt + Q, or end the process, and confirm normal keyboard/mouse input is restored.
 
 Implementation references: [Microsoft keyboard hook documentation](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc) and [DPI awareness contexts](https://learn.microsoft.com/en-us/windows/win32/hidpi/dpi-awareness-context).
+
+Live capture uses [Microsoft SetWindowDisplayAffinity](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity) to exclude the zoom window. If exclusion cannot be enabled or capture fails, the app releases input and reports the error instead of intentionally keeping a frozen view. The live capture path still requires Windows 11 validation.

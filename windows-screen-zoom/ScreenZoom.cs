@@ -129,6 +129,7 @@ namespace ScreenZoom
         private readonly Rectangle desktop;
         private readonly Native.HookProc keyboardProc;
         private readonly System.Windows.Forms.Timer safetyTimer = new System.Windows.Forms.Timer { Interval = 250 };
+        private readonly System.Windows.Forms.Timer frameTimer = new System.Windows.Forms.Timer { Interval = 33 };
         private IntPtr keyboardHook;
         private int zoomPercent = 100;
         private int wheelRemainder;
@@ -148,6 +149,7 @@ namespace ScreenZoom
             ShowInTaskbar = false;
             DoubleBuffered = true;
             BackColor = Color.Black;
+            frameTimer.Tick += RefreshDesktop;
             safetyTimer.Tick += delegate
             {
                 // Fail open if Windows switches desktops, another application
@@ -155,6 +157,40 @@ namespace ScreenZoom
                 if (!SystemInformation.VirtualScreen.Equals(desktop) || Native.GetForegroundWindow() != Handle)
                     Unlock();
             };
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            // Exclude our magnified window from capture so each frame contains
+            // the original desktop, never a recursively magnified previous frame.
+            if (!Native.SetWindowDisplayAffinity(Handle, 0x11))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not enable live desktop capture.");
+        }
+
+        private void RefreshDesktop(object sender, EventArgs e)
+        {
+            if (closing) return;
+            if (!SystemInformation.VirtualScreen.Equals(desktop) || Native.GetForegroundWindow() != Handle)
+            {
+                Unlock();
+                return;
+            }
+            try
+            {
+                // Reuse the bitmap; capture and painting both run on the UI
+                // thread, so frames cannot overwrite a bitmap being painted.
+                using (Graphics g = Graphics.FromImage(capture))
+                    g.CopyFromScreen(desktop.Location, Point.Empty, desktop.Size, CopyPixelOperation.SourceCopy);
+                Invalidate();
+            }
+            catch (Exception ex)
+            {
+                // Release input instead of leaving a stale frame locked onscreen.
+                Unlock();
+                MessageBox.Show("Live capture stopped. The screen has been unlocked.\r\n" + ex.Message,
+                    "Screen Zoom", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         protected override void OnShown(EventArgs e)
@@ -170,6 +206,7 @@ namespace ScreenZoom
                 return;
             }
             safetyTimer.Start();
+            frameTimer.Start();
         }
 
         private IntPtr Keyboard(int code, IntPtr message, IntPtr data)
@@ -232,6 +269,7 @@ namespace ScreenZoom
 
         private void ReleaseHook()
         {
+            frameTimer.Stop();
             safetyTimer.Stop();
             if (keyboardHook != IntPtr.Zero)
             {
@@ -250,7 +288,7 @@ namespace ScreenZoom
         {
             closing = true;
             ReleaseHook();
-            if (disposing) { safetyTimer.Dispose(); capture.Dispose(); }
+            if (disposing) { frameTimer.Dispose(); safetyTimer.Dispose(); capture.Dispose(); }
             base.Dispose(disposing);
         }
     }
@@ -258,6 +296,7 @@ namespace ScreenZoom
     internal static class Native
     {
         internal delegate IntPtr HookProc(int code, IntPtr message, IntPtr data);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
         [DllImport("user32.dll")] internal static extern bool SetProcessDpiAwarenessContext(IntPtr value);
         [DllImport("user32.dll", SetLastError = true)] internal static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
         [DllImport("user32.dll")] internal static extern bool UnregisterHotKey(IntPtr window, int id);
