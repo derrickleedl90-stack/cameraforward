@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace ScreenZoom
@@ -16,49 +17,49 @@ namespace ScreenZoom
             Native.SetProcessDpiAwarenessContext(new IntPtr(-4));
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new Home());
+            bool created;
+            using (var instance = new Mutex(true, "Local\\ScreenZoom.Desktop", out created))
+            {
+                if (!created) return;
+                try { Application.Run(new Home()); }
+                catch (Exception ex) { MessageBox.Show(ex.Message, "Screen Zoom", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            }
         }
     }
 
     internal sealed class Home : Form
     {
-        private readonly Timer startTimer = new Timer { Interval = 100 };
-        private readonly Label status;
+        private readonly System.Windows.Forms.Timer startTimer = new System.Windows.Forms.Timer { Interval = 100 };
         private ZoomView view;
         private DateTime readyAt;
         private bool registered;
 
         public Home()
         {
-            Text = "Screen Zoom";
-            ClientSize = new Size(510, 345);
-            StartPosition = FormStartPosition.CenterScreen;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            BackColor = Color.FromArgb(20, 25, 35);
-            ForeColor = Color.White;
-            Font = new Font("Segoe UI", 11);
-            Controls.Add(new Label { Text = "Zoom. Hold. Focus.", Font = new Font("Segoe UI", 23, FontStyle.Bold),
-                Location = new Point(28, 24), Size = new Size(460, 45) });
-            Controls.Add(new Label { Text = "Freeze your desktop and magnify a fixed point.\r\nMouse movement never pans the view.",
-                Location = new Point(30, 82), Size = new Size(450, 55), ForeColor = Color.LightGray });
-            Controls.Add(new Label { Text = "Wheel or + / -   Zoom from 100% to 800%\r\nEsc   Unlock and return to your desktop\r\nCtrl + Alt + Z   Start from any app",
-                Location = new Point(30, 151), Size = new Size(450, 85) });
-            var start = new Button { Text = "Start in 3 seconds", Location = new Point(30, 248), Size = new Size(235, 43),
-                FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(66, 104, 230), ForeColor = Color.White };
-            start.Click += delegate { Schedule(3); };
-            Controls.Add(start);
-            status = new Label { Text = "Place the pointer on the detail you want to zoom.",
-                Location = new Point(30, 307), Size = new Size(460, 26), Font = new Font("Segoe UI", 9) };
-            Controls.Add(status);
+            ShowInTaskbar = false;
             startTimer.Tick += StartWhenReady;
+        }
+
+        protected override void SetVisibleCore(bool value)
+        {
+            // Keep a native message window for global shortcuts, without ever
+            // displaying a home window, taskbar button, or tray icon.
+            if (!IsHandleCreated) CreateHandle();
+            base.SetVisibleCore(false);
         }
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
             registered = Native.RegisterHotKey(Handle, 1, 0x4003, (uint)Keys.Z);
-            if (!registered) status.Text = "Shortcut unavailable. Use the Start button instead.";
+            if (!registered)
+                throw new InvalidOperationException("Ctrl + Alt + Z is already in use. Screen Zoom could not start.");
+            if (!Native.RegisterHotKey(Handle, 2, 0x4003, (uint)Keys.Q))
+            {
+                Native.UnregisterHotKey(Handle, 1);
+                registered = false;
+                throw new InvalidOperationException("Ctrl + Alt + Q is already in use. Screen Zoom could not start.");
+            }
         }
 
         private void Schedule(int seconds)
@@ -87,14 +88,13 @@ namespace ScreenZoom
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size, CopyPixelOperation.SourceCopy);
                 view = new ZoomView(capture, bounds, anchor);
                 capture = null; // The view owns the bitmap from here on.
-                view.FormClosed += delegate { view = null; Show(); Activate(); };
+                view.FormClosed += delegate { view = null; };
                 view.Show();
             }
             catch (Exception ex)
             {
                 if (capture != null) capture.Dispose();
                 if (view != null) { view.Dispose(); view = null; }
-                Show();
                 MessageBox.Show(this, "Could not start zoom.\r\n" + ex.Message, "Screen Zoom", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -102,6 +102,7 @@ namespace ScreenZoom
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == 1) { Schedule(1); return; }
+            if (m.Msg == 0x0312 && m.WParam.ToInt32() == 2) { Close(); return; }
             base.WndProc(ref m);
         }
 
@@ -111,7 +112,11 @@ namespace ScreenZoom
             {
                 startTimer.Dispose();
                 if (view != null) view.Dispose();
-                if (registered) Native.UnregisterHotKey(Handle, 1);
+                if (registered)
+                {
+                    Native.UnregisterHotKey(Handle, 1);
+                    Native.UnregisterHotKey(Handle, 2);
+                }
             }
             base.Dispose(disposing);
         }
@@ -123,9 +128,9 @@ namespace ScreenZoom
         private readonly Point anchor;
         private readonly Rectangle desktop;
         private readonly Native.HookProc keyboardProc;
-        private readonly Timer safetyTimer = new Timer { Interval = 250 };
+        private readonly System.Windows.Forms.Timer safetyTimer = new System.Windows.Forms.Timer { Interval = 250 };
         private IntPtr keyboardHook;
-        private int step = 1;
+        private int zoomPercent = 100;
         private int wheelRemainder;
         private bool closing;
 
@@ -188,7 +193,7 @@ namespace ScreenZoom
         private void Zoom(int direction)
         {
             if (closing) return;
-            step = Math.Max(0, Math.Min(28, step + direction));
+            zoomPercent = Math.Max(100, Math.Min(800, zoomPercent + direction * 3));
             Invalidate();
         }
 
@@ -205,7 +210,7 @@ namespace ScreenZoom
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            float zoom = 1f + step * 0.25f;
+            float zoom = zoomPercent / 100f;
             float width = capture.Width / zoom;
             float height = capture.Height / zoom;
             // Keep the original pointer position at the same screen coordinate.
@@ -215,20 +220,6 @@ namespace ScreenZoom
             e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
             e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
             e.Graphics.DrawImage(capture, ClientRectangle, new RectangleF(x, y, width, height), GraphicsUnit.Pixel);
-            // One instruction card per monitor keeps the escape route visible.
-            foreach (Screen screen in Screen.AllScreens)
-            {
-                Rectangle area = screen.Bounds;
-                int left = area.Left - desktop.Left + 20;
-                int top = area.Top - desktop.Top + 20;
-                using (var background = new SolidBrush(Color.FromArgb(235, 20, 25, 35)))
-                using (var font = new Font("Segoe UI", 12, FontStyle.Bold))
-                {
-                    e.Graphics.FillRectangle(background, left, top, 390, 62);
-                    e.Graphics.DrawString(String.Format("{0:0}%  |  FROZEN & LOCKED", zoom * 100), font, Brushes.White, left + 14, top + 8);
-                    e.Graphics.DrawString("Wheel / + / -  zoom    |    Esc  unlock", Font, Brushes.White, left + 14, top + 36);
-                }
-            }
         }
 
         private void Unlock()
