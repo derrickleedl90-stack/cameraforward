@@ -4,7 +4,7 @@ A small native Windows desktop app that continuously refreshes the desktop, zoom
 
 ## Run
 
-1. Copy or extract this entire folder onto a Windows 11 PC (x64, or ARM64 with x64 emulation).
+1. Copy or extract this entire folder onto a Windows 11 PC (x64; this build targets native x64 Windows).
 2. Double-click **Run Screen Zoom.vbs**. It compiles `bin\ScreenZoom.exe` using the .NET Framework compiler on your PC and opens it. No administrator rights, Python, Node.js, or Visual Studio are needed.
 3. Startup is invisible: no window, status bar, tray icon, or console. Put your pointer over the detail you want to enlarge, press **Ctrl + Alt + Z**, release the keys, and wait one second.
 4. The live desktop view starts at 100% with no text or status overlay. Use the wheel or the plus/minus keys to change zoom.
@@ -30,11 +30,11 @@ Zoom ranges from 100% to 800% in 3 percentage-point increments: 100%, 103%, 106%
 
 ## Behavior and limits
 
-- **Live view:** desktop capture refreshes on a 33 ms timer (approximately 30 fps target; actual performance depends on resolution and hardware). Videos and meeting content can update while the focus point stays fixed. This is an input lock, not a Windows session lock.
-- The reusable frame buffer stays in memory and is discarded on unlock. Nothing is saved or sent over the network.
-- The zoom window is excluded from capture to prevent recursive zoom. Meeting screen sharing may therefore show the original unzoomed desktop rather than your local zoomed view, depending on the meeting capture method. Verify this with your meeting app.
+- **Live view:** the native Windows magnifier source refreshes on a 33 ms timer (approximately 30 fps target; actual performance depends on resolution and hardware). Videos and meeting content can update while the focus point stays fixed. This is an input lock, not a Windows session lock.
+- Windows renders the live magnified view. The app does not save screen images or send them over the network.
+- The native magnifier excludes its host only from its own source to prevent recursive zoom. The app no longer uses capture exclusion (`SetWindowDisplayAffinity`), which could hide the result from Jump Desktop. Remote capture and meeting screen sharing still need verification with your actual apps.
 - All monitors are captured as one desktop and magnified around the initial pointer location. Mixed-DPI displays and negative monitor coordinates are accounted for, but need real-device verification.
-- An opaque full-desktop window intercepts clicks. A temporary keyboard hook consumes ordinary keys while locked, allowing only zoom controls and Esc to affect this app.
+- An opaque full-desktop magnifier window intercepts clicks. A temporary keyboard hook consumes ordinary keys while locked, allowing only zoom controls and Esc to affect this app.
 - Windows secure screens and protected video are outside this app's control. Protected content may appear black. **Ctrl + Alt + Delete remains a Windows escape route.** This is not kiosk or security software; other topmost/elevated windows and system gestures may interrupt it.
 - It unlocks if another window takes focus or the display layout changes. Hooks are removed on exit; Windows also removes them when the process terminates.
 - The app does not register itself to start with Windows and makes no system settings changes. Close Windows Magnifier before use to avoid stacking zoom effects.
@@ -56,4 +56,16 @@ The source and zoom geometry were checked on macOS. **The executable has not bee
 
 Implementation references: [Microsoft keyboard hook documentation](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc) and [DPI awareness contexts](https://learn.microsoft.com/en-us/windows/win32/hidpi/dpi-awareness-context).
 
-Live capture uses [Microsoft SetWindowDisplayAffinity](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity) to exclude the zoom window. If exclusion cannot be enabled or capture fails, the app releases input and reports the error instead of intentionally keeping a frozen view. The live capture path still requires Windows 11 validation.
+## Jump Desktop update
+
+The previous live-refresh version marked the zoom window as excluded from screen capture. This can explain why zoom was visible on the physical PC but absent through remote-desktop capture. This version instead hosts the Windows native magnifier control and uses its own source filter; it does not hide the resulting window from general screen capture.
+
+1. On the Windows PC, press Esc, then Ctrl + Alt + Q to stop the old version.
+2. Extract the updated package into a new folder and run **Run Screen Zoom.vbs**.
+3. From Jump Desktop, send Ctrl + Alt + Up, release the keys, and wait one second. Press it several more times to make the change obvious.
+4. Confirm the physical display and remote display both zoom, while a video keeps moving. Test the wheel, + / -, and Esc too. If Jump Desktop intercepts a shortcut locally, use its keyboard forwarding facilities to send the chord to Windows.
+5. Verify no input reaches the meeting app while locked, and that Esc restores normal control.
+
+The update has **not been compiled or tested on Windows/Jump Desktop here**. If the remote image is still unchanged, report whether the physical display zooms, whether the remote image is black or unzoomed, and whether the connection is Jump Fluid or RDP. Those observations distinguish rendering/capture problems from shortcut delivery.
+
+Implementation follows Microsoft's [magnifier-control setup](https://learn.microsoft.com/en-us/windows/win32/winauto/magapi/magapi-intro) and [source-window filtering](https://learn.microsoft.com/en-us/windows/win32/api/magnification/nf-magnification-magsetwindowfilterlist). The filter is scoped to this magnifier, unlike the previous [capture-exclusion flag](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity).

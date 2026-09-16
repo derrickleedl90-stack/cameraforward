@@ -2,8 +2,6 @@ using System;
 using System.ComponentModel;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -22,8 +20,15 @@ namespace ScreenZoom
             using (var instance = new Mutex(true, "Local\\ScreenZoom.Desktop", out created))
             {
                 if (!created) return;
-                try { Application.Run(new Home()); }
+                bool initialized = false;
+                try
+                {
+                    initialized = Native.MagInitialize();
+                    if (!initialized) throw new Win32Exception(Marshal.GetLastWin32Error(), "Windows magnification could not start.");
+                    using (var home = new Home()) Application.Run(home);
+                }
                 catch (Exception ex) { MessageBox.Show(ex.Message, "Screen Zoom", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                finally { if (initialized) Native.MagUninitialize(); }
             }
         }
     }
@@ -83,23 +88,17 @@ namespace ScreenZoom
             for (int key = 1; key < 256; key++)
                 if ((Native.GetAsyncKeyState(key) & 0x8000) != 0) return;
             startTimer.Stop();
-            Bitmap capture = null;
             try
             {
                 Rectangle bounds = SystemInformation.VirtualScreen;
                 Point anchor = Cursor.Position;
-                capture = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb);
-                using (Graphics g = Graphics.FromImage(capture))
-                    g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size, CopyPixelOperation.SourceCopy);
-                view = new ZoomView(capture, bounds, anchor);
-                capture = null; // The view owns the bitmap from here on.
+                view = new ZoomView(bounds, anchor);
                 view.FormClosed += delegate { view = null; };
                 if (initialZoomSteps != 0) view.Zoom(initialZoomSteps);
                 view.Show();
             }
             catch (Exception ex)
             {
-                if (capture != null) capture.Dispose();
                 if (view != null) { view.Dispose(); view = null; }
                 MessageBox.Show(this, "Could not start zoom.\r\n" + ex.Message, "Screen Zoom", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -137,7 +136,7 @@ namespace ScreenZoom
 
     internal sealed class ZoomView : Form
     {
-        private readonly Bitmap capture;
+        private MagnifierSurface magnifier;
         private readonly Point anchor;
         private readonly Rectangle desktop;
         private readonly Native.HookProc keyboardProc;
@@ -149,9 +148,8 @@ namespace ScreenZoom
         private readonly HashSet<int> pressedKeys = new HashSet<int>();
         private bool closing;
 
-        public ZoomView(Bitmap capture, Rectangle desktop, Point pointer)
+        public ZoomView(Rectangle desktop, Point pointer)
         {
-            this.capture = capture;
             this.desktop = desktop;
             anchor = new Point(pointer.X - desktop.X, pointer.Y - desktop.Y);
             keyboardProc = Keyboard;
@@ -161,7 +159,6 @@ namespace ScreenZoom
             Bounds = desktop;
             TopMost = true;
             ShowInTaskbar = false;
-            DoubleBuffered = true;
             BackColor = Color.Black;
             frameTimer.Tick += RefreshDesktop;
             safetyTimer.Tick += delegate
@@ -173,13 +170,50 @@ namespace ScreenZoom
             };
         }
 
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams parameters = base.CreateParams;
+                parameters.ExStyle |= 0x80000; // WS_EX_LAYERED, required by the magnifier.
+                return parameters;
+            }
+        }
+
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            // Exclude our magnified window from capture so each frame contains
-            // the original desktop, never a recursively magnified previous frame.
-            if (!Native.SetWindowDisplayAffinity(Handle, 0x11))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not enable live desktop capture.");
+            if (!Native.SetLayeredWindowAttributes(Handle, 0, 255, 2))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create the magnifier host.");
+            magnifier = new MagnifierSurface(Handle, ClientSize, AdjustWheel);
+            // This filter applies ONLY to the magnifier's source. The resulting
+            // window remains available to Jump Desktop and other capture tools.
+            if (!Native.MagSetWindowFilterList(magnifier.Handle, 0, 1, new IntPtr[] { Handle }))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not configure the magnifier source.");
+            UpdateMagnifier();
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            if (magnifier != null) { magnifier.Dispose(); magnifier = null; }
+            base.OnHandleDestroyed(e);
+        }
+
+        private void UpdateMagnifier()
+        {
+            if (magnifier == null || closing) return;
+            float zoom = zoomPercent / 100f;
+            int width = (int)Math.Ceiling(desktop.Width / (double)zoom);
+            int height = (int)Math.Ceiling(desktop.Height / (double)zoom);
+            int x = Math.Max(0, Math.Min(desktop.Width - width, (int)Math.Round(anchor.X * (1.0 - 1.0 / zoom))));
+            int y = Math.Max(0, Math.Min(desktop.Height - height, (int)Math.Round(anchor.Y * (1.0 - 1.0 / zoom))));
+            var source = new Native.Rect { Left = desktop.Left + x, Top = desktop.Top + y,
+                Right = desktop.Left + x + width, Bottom = desktop.Top + y + height };
+            var transform = new Native.MagTransform { M00 = zoom, M11 = zoom, M22 = 1f };
+            if (!Native.MagSetWindowTransform(magnifier.Handle, ref transform) ||
+                !Native.MagSetWindowSource(magnifier.Handle, source))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not refresh the live magnifier.");
+            Native.InvalidateRect(magnifier.Handle, IntPtr.Zero, false);
         }
 
         private void RefreshDesktop(object sender, EventArgs e)
@@ -192,11 +226,7 @@ namespace ScreenZoom
             }
             try
             {
-                // Reuse the bitmap; capture and painting both run on the UI
-                // thread, so frames cannot overwrite a bitmap being painted.
-                using (Graphics g = Graphics.FromImage(capture))
-                    g.CopyFromScreen(desktop.Location, Point.Empty, desktop.Size, CopyPixelOperation.SourceCopy);
-                Invalidate();
+                UpdateMagnifier();
             }
             catch (Exception ex)
             {
@@ -258,32 +288,23 @@ namespace ScreenZoom
         {
             if (closing) return;
             zoomPercent = Math.Max(100, Math.Min(800, zoomPercent + direction * 3));
-            Invalidate();
+            // The frame timer applies the new zoom and handles native failures.
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
         {
-            wheelRemainder += e.Delta;
+            AdjustWheel(e.Delta);
+        }
+
+        private void AdjustWheel(int delta)
+        {
+            wheelRemainder += delta;
             while (Math.Abs(wheelRemainder) >= 120)
             {
                 int direction = Math.Sign(wheelRemainder);
                 wheelRemainder -= direction * 120;
                 Zoom(direction);
             }
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            float zoom = zoomPercent / 100f;
-            float width = capture.Width / zoom;
-            float height = capture.Height / zoom;
-            // Keep the original pointer position at the same screen coordinate.
-            // The current pointer position is deliberately never consulted.
-            float x = Math.Max(0, Math.Min(capture.Width - width, anchor.X * (1f - 1f / zoom)));
-            float y = Math.Max(0, Math.Min(capture.Height - height, anchor.Y * (1f - 1f / zoom)));
-            e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            e.Graphics.DrawImage(capture, ClientRectangle, new RectangleF(x, y, width, height), GraphicsUnit.Pixel);
         }
 
         private void Unlock()
@@ -315,15 +336,65 @@ namespace ScreenZoom
         {
             closing = true;
             ReleaseHook();
-            if (disposing) { frameTimer.Dispose(); safetyTimer.Dispose(); capture.Dispose(); }
+            if (disposing) { frameTimer.Dispose(); safetyTimer.Dispose(); }
             base.Dispose(disposing);
+        }
+    }
+
+    // Subclass the native child so mouse-wheel input is handled exactly once
+    // whether Windows delivers it to the host or directly to this child.
+    internal sealed class MagnifierSurface : NativeWindow, IDisposable
+    {
+        private readonly Action<int> wheel;
+        public MagnifierSurface(IntPtr parent, Size size, Action<int> wheel)
+        {
+            this.wheel = wheel;
+            IntPtr window = Native.CreateWindowEx(0, "Magnifier", "", 0x50000000,
+                0, 0, size.Width, size.Height, parent, IntPtr.Zero, Native.GetModuleHandle(null), IntPtr.Zero);
+            if (window == IntPtr.Zero)
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create the Windows magnifier control.");
+            AssignHandle(window);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x020A) // WM_MOUSEWHEEL
+            {
+                wheel(unchecked((short)((m.WParam.ToInt64() >> 16) & 0xffff)));
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
+        public void Dispose()
+        {
+            IntPtr window = Handle;
+            if (window == IntPtr.Zero) return;
+            ReleaseHandle();
+            Native.DestroyWindow(window);
         }
     }
 
     internal static class Native
     {
         internal delegate IntPtr HookProc(int code, IntPtr message, IntPtr data);
-        [DllImport("user32.dll", SetLastError = true)] internal static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct Rect { internal int Left, Top, Right, Bottom; }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct MagTransform
+        {
+            internal float M00, M01, M02, M10, M11, M12, M20, M21, M22;
+        }
+        [DllImport("Magnification.dll", SetLastError = true)] internal static extern bool MagInitialize();
+        [DllImport("Magnification.dll")] internal static extern bool MagUninitialize();
+        [DllImport("Magnification.dll", SetLastError = true)] internal static extern bool MagSetWindowTransform(IntPtr window, ref MagTransform transform);
+        [DllImport("Magnification.dll", SetLastError = true)] internal static extern bool MagSetWindowSource(IntPtr window, Rect source);
+        [DllImport("Magnification.dll", SetLastError = true)] internal static extern bool MagSetWindowFilterList(IntPtr window, uint mode, int count, [In] IntPtr[] windows);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool SetLayeredWindowAttributes(IntPtr window, uint color, byte alpha, uint flags);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern IntPtr CreateWindowEx(uint exStyle, string className, string title, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+        [DllImport("user32.dll")] internal static extern bool DestroyWindow(IntPtr window);
+        [DllImport("user32.dll")] internal static extern bool InvalidateRect(IntPtr window, IntPtr rect, bool erase);
         [DllImport("user32.dll")] internal static extern bool SetProcessDpiAwarenessContext(IntPtr value);
         [DllImport("user32.dll", SetLastError = true)] internal static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
         [DllImport("user32.dll")] internal static extern bool UnregisterHotKey(IntPtr window, int id);
