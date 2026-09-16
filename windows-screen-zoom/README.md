@@ -69,3 +69,9 @@ The previous live-refresh version marked the zoom window as excluded from screen
 The update has **not been compiled or tested on Windows/Jump Desktop here**. If the remote image is still unchanged, report whether the physical display zooms, whether the remote image is black or unzoomed, and whether the connection is Jump Fluid or RDP. Those observations distinguish rendering/capture problems from shortcut delivery.
 
 Implementation follows Microsoft's [magnifier-control setup](https://learn.microsoft.com/en-us/windows/win32/winauto/magapi/magapi-intro) and [source-window filtering](https://learn.microsoft.com/en-us/windows/win32/api/magnification/nf-magnification-magsetwindowfilterlist). The filter is scoped to this magnifier, unlike the previous [capture-exclusion flag](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity).
+
+## Bottom-edge sizing update
+
+The native magnifier child now follows the actual host client size instead of retaining its creation-time dimensions. After startup the host is explicitly sized to the full desktop (including the taskbar area). Source dimensions are calculated from the current output area and rounded up to avoid uncovered edge pixels. This addresses a possible cause of a black strip at the bottom; the reported Jump Desktop symptom still needs verification.
+
+Check the bottom edge at 100%, 103%, 130%, and 199%, with Windows display scaling at the setting you normally use. Confirm the view fills the screen, meeting video remains live, and Ctrl + Shift + Up/Down, wheel zoom, and Esc still work.

@@ -202,9 +202,19 @@ namespace ScreenZoom
         private void UpdateMagnifier()
         {
             if (magnifier == null || closing) return;
+            // Windows can finalize the host's size after the native child was
+            // created (particularly with DPI scaling or a remote display).
+            // Read the actual client pixels rather than retaining that first size.
+            Native.Rect client;
+            if (!Native.GetClientRect(Handle, out client))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not read the magnifier size.");
+            int outputWidth = client.Right - client.Left;
+            int outputHeight = client.Bottom - client.Top;
+            if (outputWidth <= 0 || outputHeight <= 0) return;
+            magnifier.ResizeTo(new Size(outputWidth, outputHeight));
             float zoom = zoomPercent / 100f;
-            int width = (int)Math.Ceiling(desktop.Width / (double)zoom);
-            int height = (int)Math.Ceiling(desktop.Height / (double)zoom);
+            int width = (int)Math.Ceiling(outputWidth / (double)zoom);
+            int height = (int)Math.Ceiling(outputHeight / (double)zoom);
             int x = Math.Max(0, Math.Min(desktop.Width - width, (int)Math.Round(anchor.X * (1.0 - 1.0 / zoom))));
             int y = Math.Max(0, Math.Min(desktop.Height - height, (int)Math.Round(anchor.Y * (1.0 - 1.0 / zoom))));
             var source = new Native.Rect { Left = desktop.Left + x, Top = desktop.Top + y,
@@ -240,6 +250,16 @@ namespace ScreenZoom
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
+            // Reassert the full desktop bounds after WinForms' first-show
+            // positioning; the taskbar's working area must not shrink the view.
+            if (!Native.SetWindowPos(Handle, IntPtr.Zero, desktop.X, desktop.Y,
+                desktop.Width, desktop.Height, 0x0014)) // NOZORDER | NOACTIVATE
+            {
+                int error = Marshal.GetLastWin32Error();
+                Unlock();
+                MessageBox.Show("Could not size the full-screen view: " + new Win32Exception(error).Message, "Screen Zoom");
+                return;
+            }
             Activate();
             keyboardHook = Native.SetWindowsHookEx(13, keyboardProc, Native.GetModuleHandle(null), 0);
             if (keyboardHook == IntPtr.Zero)
@@ -346,6 +366,7 @@ namespace ScreenZoom
     internal sealed class MagnifierSurface : NativeWindow, IDisposable
     {
         private readonly Action<int> wheel;
+        private Size surfaceSize;
         public MagnifierSurface(IntPtr parent, Size size, Action<int> wheel)
         {
             this.wheel = wheel;
@@ -354,6 +375,15 @@ namespace ScreenZoom
             if (window == IntPtr.Zero)
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create the Windows magnifier control.");
             AssignHandle(window);
+            surfaceSize = size;
+        }
+
+        public void ResizeTo(Size size)
+        {
+            if (size == surfaceSize) return;
+            if (!Native.MoveWindow(Handle, 0, 0, size.Width, size.Height, true))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not resize the live magnifier.");
+            surfaceSize = size;
         }
 
         protected override void WndProc(ref Message m)
@@ -394,6 +424,9 @@ namespace ScreenZoom
         [DllImport("user32.dll", SetLastError = true)] internal static extern bool SetLayeredWindowAttributes(IntPtr window, uint color, byte alpha, uint flags);
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern IntPtr CreateWindowEx(uint exStyle, string className, string title, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
         [DllImport("user32.dll")] internal static extern bool DestroyWindow(IntPtr window);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool GetClientRect(IntPtr window, out Rect rect);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool MoveWindow(IntPtr window, int x, int y, int width, int height, bool repaint);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
         [DllImport("user32.dll")] internal static extern bool InvalidateRect(IntPtr window, IntPtr rect, bool erase);
         [DllImport("user32.dll")] internal static extern bool SetProcessDpiAwarenessContext(IntPtr value);
         [DllImport("user32.dll", SetLastError = true)] internal static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
