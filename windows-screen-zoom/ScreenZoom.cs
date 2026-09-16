@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -32,7 +33,8 @@ namespace ScreenZoom
         private readonly System.Windows.Forms.Timer startTimer = new System.Windows.Forms.Timer { Interval = 100 };
         private ZoomView view;
         private DateTime readyAt;
-        private bool registered;
+        private int registeredHotkeys;
+        private int initialZoomSteps;
 
         public Home()
         {
@@ -51,20 +53,23 @@ namespace ScreenZoom
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            registered = Native.RegisterHotKey(Handle, 1, 0x4003, (uint)Keys.Z);
-            if (!registered)
-                throw new InvalidOperationException("Ctrl + Alt + Z is already in use. Screen Zoom could not start.");
-            if (!Native.RegisterHotKey(Handle, 2, 0x4003, (uint)Keys.Q))
+            Keys[] keys = { Keys.Z, Keys.Q, Keys.Up, Keys.Down };
+            for (int index = 0; index < keys.Length; index++)
             {
-                Native.UnregisterHotKey(Handle, 1);
-                registered = false;
-                throw new InvalidOperationException("Ctrl + Alt + Q is already in use. Screen Zoom could not start.");
+                if (!Native.RegisterHotKey(Handle, index + 1, 0x4003, (uint)keys[index]))
+                {
+                    for (int id = 1; id <= registeredHotkeys; id++) Native.UnregisterHotKey(Handle, id);
+                    registeredHotkeys = 0;
+                    throw new InvalidOperationException("Ctrl + Alt + " + keys[index] + " is already in use. Screen Zoom could not start.");
+                }
+                registeredHotkeys++;
             }
         }
 
-        private void Schedule(int seconds)
+        private void Schedule(int seconds, int zoomSteps = 0)
         {
             if (view != null || startTimer.Enabled) return;
+            initialZoomSteps = zoomSteps;
             Hide();
             readyAt = DateTime.UtcNow.AddSeconds(seconds);
             startTimer.Start();
@@ -89,6 +94,7 @@ namespace ScreenZoom
                 view = new ZoomView(capture, bounds, anchor);
                 capture = null; // The view owns the bitmap from here on.
                 view.FormClosed += delegate { view = null; };
+                if (initialZoomSteps != 0) view.Zoom(initialZoomSteps);
                 view.Show();
             }
             catch (Exception ex)
@@ -103,6 +109,16 @@ namespace ScreenZoom
         {
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == 1) { Schedule(1); return; }
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == 2) { Close(); return; }
+            if (m.Msg == 0x0312 && m.WParam.ToInt32() == 3)
+            {
+                if (view != null) view.Zoom(1); else Schedule(1, 1);
+                return;
+            }
+            if (m.Msg == 0x0312 && m.WParam.ToInt32() == 4)
+            {
+                if (view != null) view.Zoom(-1);
+                return;
+            }
             base.WndProc(ref m);
         }
 
@@ -112,11 +128,8 @@ namespace ScreenZoom
             {
                 startTimer.Dispose();
                 if (view != null) view.Dispose();
-                if (registered)
-                {
-                    Native.UnregisterHotKey(Handle, 1);
-                    Native.UnregisterHotKey(Handle, 2);
-                }
+                for (int id = 1; id <= registeredHotkeys; id++) Native.UnregisterHotKey(Handle, id);
+                registeredHotkeys = 0;
             }
             base.Dispose(disposing);
         }
@@ -133,6 +146,7 @@ namespace ScreenZoom
         private IntPtr keyboardHook;
         private int zoomPercent = 100;
         private int wheelRemainder;
+        private readonly HashSet<int> pressedKeys = new HashSet<int>();
         private bool closing;
 
         public ZoomView(Bitmap capture, Rectangle desktop, Point pointer)
@@ -214,11 +228,24 @@ namespace ScreenZoom
             if (code < 0 || closing) return Native.CallNextHookEx(keyboardHook, code, message, data);
             int msg = message.ToInt32();
             int key = Marshal.ReadInt32(data);
+            bool keyDown = msg == 0x100 || msg == 0x104;
+            bool keyUp = msg == 0x101 || msg == 0x105;
+            if (keyDown) pressedKeys.Add(key);
+            if (keyUp) pressedKeys.Remove(key);
+            // Track hook events directly: swallowed modifier keys need not be
+            // reflected in Windows asynchronous key state. Capture begins with
+            // all keys released, so this set starts in a known state.
+            bool control = pressedKeys.Contains((int)Keys.LControlKey) || pressedKeys.Contains((int)Keys.RControlKey) || pressedKeys.Contains((int)Keys.ControlKey);
+            bool alt = pressedKeys.Contains((int)Keys.LMenu) || pressedKeys.Contains((int)Keys.RMenu) || pressedKeys.Contains((int)Keys.Menu);
             // Queue work and return immediately: a slow low-level hook can be
             // silently removed by Windows. Never paint or capture in this hook.
-            if (msg == 0x100 || msg == 0x104)
+            if (keyDown)
             {
                 if (key == (int)Keys.Escape) BeginInvoke((Action)Unlock);
+                else if (control && alt && key == (int)Keys.Up)
+                    BeginInvoke((Action)delegate { Zoom(1); });
+                else if (control && alt && key == (int)Keys.Down)
+                    BeginInvoke((Action)delegate { Zoom(-1); });
                 else if (key == (int)Keys.Oemplus || key == (int)Keys.Add)
                     BeginInvoke((Action)delegate { Zoom(1); });
                 else if (key == (int)Keys.OemMinus || key == (int)Keys.Subtract)
@@ -227,7 +254,7 @@ namespace ScreenZoom
             return new IntPtr(1);
         }
 
-        private void Zoom(int direction)
+        internal void Zoom(int direction)
         {
             if (closing) return;
             zoomPercent = Math.Max(100, Math.Min(800, zoomPercent + direction * 3));

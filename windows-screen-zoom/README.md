@@ -19,6 +19,8 @@ After the first build, you can launch `bin\ScreenZoom.exe` directly. If the comp
 | Control | Action |
 | --- | --- |
 | Ctrl + Alt + Z | Start capture from another app |
+| Ctrl + Alt + Up | Zoom in 3%; activates at 103% if unlocked (release keys and wait one second) |
+| Ctrl + Alt + Down | Zoom out 3% while locked; no effect while unlocked |
 | Wheel up / down | Zoom in / out |
 | + / - (including numeric keypad) | Zoom in / out |
 | Esc | Unlock immediately |
@@ -44,7 +46,7 @@ Run `build.cmd` on Windows to compile. The source uses C# 5 and Windows Forms fr
 The source and zoom geometry were checked on macOS. **The executable has not been compiled or run on Windows in this environment.** Complete these checks on Windows before relying on it:
 
 1. Build and launch; verify no window or console appears. Activate with Ctrl + Alt + Z over Notepad and verify there is no status overlay.
-2. Zoom through 100%–800%, test wheel and both sets of plus/minus keys, and confirm movement never pans the image.
+2. Test Ctrl + Alt + Up from another app: release keys and verify activation at 103%. While locked, test both Ctrl + Alt + Up/Down (including right-side modifiers); each press should change zoom once by 3%. Release modifiers and verify plain arrows do not zoom. Zoom through 100%–800%, test wheel and both sets of plus/minus keys, and confirm movement never pans the image.
 3. While locked, type letters, click, right-click, press Tab, Alt + Tab, and Windows. Confirm ordinary input does not affect Notepad. Esc must restore control.
 4. Confirm 100% stays locked and repeated unlock/restart cycles work.
 5. Test two monitors, including one left of the primary, and Windows scaling at 100%, 150%, and 200%.
